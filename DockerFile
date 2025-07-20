@@ -1,0 +1,36 @@
+# === Build stage ===
+FROM python:3.11-slim AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    build-essential cmake && \
+    rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies in a virtual env
+COPY requirements.txt .
+RUN python -m venv /venv && \
+    /venv/bin/pip install --upgrade pip && \
+    /venv/bin/pip install --no-cache-dir -r requirements.txt
+
+# === Final stage ===
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Copy app code
+COPY app.py .
+
+# Copy virtual environment from builder
+COPY --from=builder /venv /venv
+
+# Set environment so Python uses our clean venv
+ENV PATH="/venv/bin:$PATH"
+
+# Optional: you can also copy .env or mount it in runtime
+# COPY .env .
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
