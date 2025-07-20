@@ -9,6 +9,7 @@ from functools import lru_cache
 from typing import Optional
 import asyncio
 from dotenv import load_dotenv
+import json
 load_dotenv()
 
 app = FastAPI()
@@ -23,7 +24,9 @@ HMAC_SECRET = os.getenv("HMAC_SECRET")
 
 class PromptRequest(BaseModel):
     prompt: str
-    model: Optional[str] = None  # Filename only (e.g. "mistral.gguf")
+    model: Optional[str] = None
+    stop_tokens: Optional[list[str]] = None
+    max_tokens: Optional[int] = None
 
 def verify_hmac(request: Request):
     if HMAC_SECRET:
@@ -61,12 +64,16 @@ def parse_stop_tokens(raw_value: str) -> list[str]:
     # Fallback: comma-separated
     return [token.strip() for token in raw_value.split(",") if token.strip()]
 
-async def generate_async(llm, prompt: str) -> str:
+async def generate_async(llm, prompt: str, stop_tokens: Optional[list[str]], max_tokens: Optional[int]) -> str:
     loop = asyncio.get_running_loop()
-    stop_tokens = parse_stop_tokens(os.getenv("STOP_TOKENS", ""))
+    
+    # Fallbacks to environment
+    stop_tokens = stop_tokens if stop_tokens is not None else parse_stop_tokens(os.getenv("STOP_TOKENS", ""))
+    max_tokens = max_tokens if max_tokens is not None else int(os.getenv("MAX_TOKENS", 512))
+
     return await loop.run_in_executor(None, lambda: llm(
         prompt,
-        max_tokens=int(os.getenv("MAX_TOKENS", 512)),
+        max_tokens=max_tokens,
         temperature=float(os.getenv("TEMPERATURE", 0.8)),
         top_k=int(os.getenv("TOP_K", 40)),
         top_p=float(os.getenv("TOP_P", 0.95)),
@@ -92,7 +99,7 @@ async def generate(request: Request, payload: PromptRequest, _=Depends(verify_hm
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-    output = await generate_async(llm, payload.prompt)
+    output = await generate_async(llm, payload.prompt, payload.stop_tokens, payload.max_tokens)
     return JSONResponse({"response": output.strip()})
 
 if __name__ == "__main__":
