@@ -5,35 +5,47 @@ class PromptBuilder:
         self.role = (role or '').strip()
         self.article = (article or '').strip()
         self.chat_history = chat_history or []
-        
-        file_path = os.path.abspath(self.role)
-        if os.path.exists(file_path):
-            with open(file_path, 'r', encoding='utf-8') as f:
+
+        if os.path.exists(self.role):
+            with open(self.role, 'r', encoding='utf-8') as f:
                 self.role = f.read()
 
     def get_role(self, sender):
         return 'user' if sender else 'assistant'
+
+    def build_system_part(self, article=None):
+        system_parts = []
+        if self.role:
+            system_parts.append(self.role)
+        if article:
+            if system_parts:
+                system_parts.append(r"""
+                
+                    -------\n\n
+                
+                """)
+            system_parts.append(f"""
+                ### Artikel:
+                {article}
+            """)
+        return system_parts
 
     def get_chatml_prompt(self, article=None, chat_history=None):
         article = article or self.article
         chat_history = chat_history or self.chat_history
 
         messages = []
+        system_parts = self.build_system_part(article)
+        if system_parts:
+            messages.append({
+                'role': 'system',
+                'content': "\n\n".join(system_parts)
+            })
 
-        # System message (role + article)
-        content = self.role
-        if article:
-            content += f"\n\nArtikel:\n{article}"
-        messages.append({
-            'role': 'system',
-            'content': content
-        })
-
-        # Chat history
         for entry in chat_history:
             messages.append({
-                'role': self.get_role(entry.get('senderId')),
-                'content': entry.get('message', '').strip()
+                'role': self.get_role(entry['senderId']),
+                'content': entry['message'].strip()
             })
 
         return messages
@@ -43,34 +55,54 @@ class PromptBuilder:
         chat_history = chat_history or self.chat_history
 
         history = [
-            f"<|im_start|>{self.get_role(entry.get('senderId'))}\n{entry.get('message', '').strip()}\n<|im_end|>"
+            f"""
+                <|im_start|>{self.get_role(entry['senderId'])}
+                    {entry['message'].strip()}
+                <|im_end|>
+            """
             for entry in chat_history
         ]
 
-        system_parts = [f"<|im_start|>system\n{self.role}"]
-        if article:
-            system_parts.append(
-                f"\n------\n\nArtikel:\n{article}"
-            )
-        system_parts.append("<|im_end|>")
+        system_parts = self.build_system_part(article)
+        if system_parts:
+            system_parts = [
+                "<|im_start|>system",
+                *system_parts,
+                "<|im_end|>"
+            ]
 
-        return '\n'.join([*system_parts, *history, "<|im_start|>assistant"])
+        return "\n\n".join([
+            "\n".join(system_parts),
+            "\n".join(history),
+            "<|im_start|>assistant"
+        ])
 
     def get_plain_prompt(self, article=None, chat_history=None):
         article = article or self.article
         chat_history = chat_history or self.chat_history
 
         history = [
-            f"### {entry.get('senderId')}:\n{entry.get('message', '').strip()}"
+            f"""
+                ### {self.get_role(entry['senderId'])}:
+                {entry['message'].strip()}
+            """
             for entry in chat_history
         ]
+        if history:
+            history = [
+                "## Riwayat percakapan:",
+                *history
+            ]
 
-        parts = [f"## Peran:\n{self.role}", "------"]
+        system_parts = self.build_system_part(article)
+        if system_parts:
+            system_parts = [
+                "## Peran:",
+                *system_parts
+            ]
 
-        if article:
-            parts.extend([f"## Artikel:\n{article}", "------"])
-        joined_history = "\n\n".join(history)
-        parts.append(f"## Riwayat percakapan:\n{joined_history}")
-        parts.append("### Jawaban IT Support: ")
-
-        return '\n\n'.join(parts).strip()
+        return "\n\n".join([
+            "\n".join(system_parts),
+            "\n".join(history),
+            "### Jawaban IT Support:"
+        ])
