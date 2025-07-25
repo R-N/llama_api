@@ -14,4 +14,3 @@ Contoh output yang benar:
 - error authentication method 10 postgresql php
 
 Berikut riwayat percakapan:
-<chat history>
